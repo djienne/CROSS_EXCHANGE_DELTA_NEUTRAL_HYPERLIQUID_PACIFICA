@@ -141,7 +141,7 @@ Stop-loss is **triggered by the worst leg PnL** (not total PnL) to protect again
 | 10x      | -6%         | 60%                     | ~40%                      |
 | 20x      | -3%         | 60%                     | ~40%                      |
 
-**When triggered**: Both positions are immediately closed via market orders, PnL is calculated, and the bot enters a waiting period before starting a new cycle.
+**When triggered**: Both positions are immediately closed via market orders, PnL is calculated, and the bot enters a waiting period (5 minutes by default) before starting a new cycle.
 
 ## 📊 Monitoring
 
@@ -218,6 +218,7 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
