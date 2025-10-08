@@ -21,7 +21,7 @@
   "base_capital_allocation": 64.0,
   "comment_hold_duration": "The number of hours to hold a position to collect funding.",
   "hold_duration_hours": 12.0,
-  "comment_wait_between": "The number of minutes to wait after closing a position before searching for a new one.",
+  "comment_wait_between": "The number of minutes to wait after closing a position before searching for a new one. Also after stoploss.",
   "wait_between_cycles_minutes": 5.0,
   "comment_check_interval": "The number of seconds between health checks when holding a position (including stoploss check).",
   "check_interval_seconds": 60,
@@ -29,3 +29,4 @@
   "min_net_apr_threshold": 5.0
 
 }
+
