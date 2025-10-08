@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "state": "HOLDING",
+  "current_cycle_number": 1,
+  "current_position": {
+    "symbol": "DOGE",
+    "opened_at": "2025-10-08T14:44:21.535313+00:00",
+    "target_close_at": "2025-10-09T02:44:21.535313+00:00",
+    "long_exchange": "Pacifica",
+    "short_exchange": "Hyperliquid",
+    "notional": 617.002435,
+    "leverage": 10.0
+  },
+  "completed_cycles": [],
+  "cumulative_stats": {
+    "total_cycles": 0,
+    "successful_cycles": 0,
+    "failed_cycles": 0,
+    "total_realized_pnl": 0.0,
+    "last_error": null,
+    "last_error_at": null
+  },
+  "initial_capital": 225.62741400000002,
+  "last_updated": "2025-10-08T15:18:49.237332+00:00"
+}

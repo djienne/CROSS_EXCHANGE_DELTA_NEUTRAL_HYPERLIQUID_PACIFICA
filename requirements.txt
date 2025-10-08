@@ -1,0 +1,46 @@
+# Hyperliquid SDK and dependencies
+hyperliquid-python-sdk
+
+# WebSocket and HTTP client dependencies
+websocket-client>=1.0.0
+requests>=2.25.0
+typing-extensions>=4.0.0
+websockets
+aiohttp
+
+# For loading .env files
+python-dotenv>=1.0.0
+
+# Crypto utilities (for Pacifica/Solana)
+solders
+base58
+
+# Optional: Data analysis dependencies (only needed for examples in docs/PACIFICA/examples/)
+# pandas>=1.5.0
+# numpy>=1.21.0
+# scipy>=1.9.0
+# matplotlib>=3.5.0
+# seaborn>=0.11.0
+# pandas-ta
+# arch
+# numba
+
+# Test dependencies for hedge bot
+# Testing framework
+pytest
+pytest-cov  # Coverage reporting
+pytest-mock  # Enhanced mocking
+pytest-asyncio  # Async test support
+
+# Code quality
+flake8  # Linting
+black  # Code formatting
+mypy  # Type checking
+
+# Test utilities
+freezegun  # Time mocking
+responses  # HTTP mocking
+
+# Other (not currently used by main bot)
+# colorama
+# brotli
