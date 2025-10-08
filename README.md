@@ -1,7 +1,7 @@
 # 🤖 Hyperliquid-Pacifica Cross-Exchange Funding Rate Delta Neutral Bot
 
 Automated delta-neutral bot that captures funding rate spreads between Hyperliquid and Pacifica perpetual futures exchanges.
-Can be also use to do volume while limit risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
+Can be also used to farm trading volume while limit risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
 
 **💰 Support this project**:
 - **Hyperliquid**: Sign up with [this referral link](https://app.hyperliquid.xyz/join/FREQTRADE) for 10% fee reduction
@@ -22,6 +22,7 @@ Can be also use to do volume while limit risk (refreshes positions every `hold_d
 ## 📊 Strategy
 
 The bot maintains market-neutral positions by going **long on the exchange with lower funding rate** and **short on the exchange with higher funding rate**, collecting the funding rate differential while minimizing directional price risk.
+Can be also used to farm trading volime while limit risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
 
 **💡 Example**: If Hyperliquid funding is +10% APR and Pacifica is +50% APR:
 - Long position on Hyperliquid (pay 10%)
@@ -227,6 +228,7 @@ python test/test_pacifica_leverage.py
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
