@@ -189,16 +189,6 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 - `bot_config.json` - Configuration
 - `bot_state_hl_pacifica.json` - Persistent state (auto-created)
 - `logs/hyperliquid_pacifica_hedge.log` - Log file (resets on start)
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pytest test/
-
-# Test specific exchange
-python test/test_hyperliquid_balance.py
-python test/test_pacifica_leverage.py
 ```
 
 ## ⚠️ Important Notes
@@ -228,6 +218,7 @@ python test/test_pacifica_leverage.py
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
