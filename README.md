@@ -110,7 +110,6 @@ See `DOCKER.md` for detailed deployment guide.
 - ✅ **20x Leverage Hard Cap**: Never exceeds 20x regardless of config
 - ✅ **Leverage Synchronization**: Both exchanges use identical leverage
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
-- ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
 - ✅ **Symbol Filtering**: Only trades symbols available on both exchanges
 - ✅ **State Recovery**: Automatically recovers position state after restart
 - ✅ **Quantity Precision**: Uses coarser step size to ensure identical quantities
@@ -218,6 +217,7 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
