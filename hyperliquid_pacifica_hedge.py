@@ -405,8 +405,46 @@ async def recover_state(state_mgr: StateManager, hl_client: HyperliquidConnector
         hl_size = pos_info["hyperliquid_size"]
         pacifica_size = pos_info["pacifica_size"]
 
+        # Check if it's an orphan leg (only one exchange has a position)
+        is_orphan_hl = (hl_size != 0 and pacifica_size == 0)
+        is_orphan_pacifica = (pacifica_size != 0 and hl_size == 0)
+
+        if is_orphan_hl or is_orphan_pacifica:
+            orphan_exchange = "Hyperliquid" if is_orphan_hl else "Pacifica"
+            orphan_size = hl_size if is_orphan_hl else pacifica_size
+            logger.warning(f"{Colors.YELLOW}⚠️ Detected orphan leg on {orphan_exchange} for {symbol}: {orphan_size:+.4f}{Colors.RESET}")
+            logger.info(f"{Colors.CYAN}🔧 Attempting to close orphan position...{Colors.RESET}")
+
+            try:
+                # Close the orphan leg
+                if is_orphan_hl:
+                    logger.info(f"Closing orphan Hyperliquid position for {symbol}...")
+                    hl_result = hl_client.market_close(symbol)
+                    if hl_result is None:
+                        raise RuntimeError("Failed to close orphan Hyperliquid position")
+                    logger.info(f"{Colors.GREEN}✅ Orphan Hyperliquid position closed{Colors.RESET}")
+                else:  # Orphan on Pacifica
+                    close_qty = abs(pacifica_size)
+                    close_side = 'sell' if pacifica_size > 0 else 'buy'
+                    logger.info(f"Closing orphan Pacifica position for {symbol}: {close_qty:.4f} {close_side}...")
+                    pacifica_result = pacifica_client.place_market_order(symbol, side=close_side, quantity=close_qty, reduce_only=True)
+                    if pacifica_result is None:
+                        raise RuntimeError("Failed to close orphan Pacifica position")
+                    logger.info(f"{Colors.GREEN}✅ Orphan Pacifica position closed{Colors.RESET}")
+
+                # Reset state to IDLE after successful cleanup
+                logger.info(f"{Colors.GREEN}✅ Orphan leg cleaned up successfully. Resetting to IDLE.{Colors.RESET}")
+                state_mgr.state["current_position"] = None
+                state_mgr.set_state(BotState.IDLE)
+                return True
+
+            except Exception as e:
+                logger.error(f"{Colors.RED}Failed to close orphan leg: {e}. Manual intervention required.{Colors.RESET}")
+                state_mgr.set_state(BotState.ERROR)
+                return False
+
         # Check if it's a valid delta-neutral position (approximately opposite and equal)
-        if abs(hl_size + pacifica_size) > (abs(hl_size) * 0.05): # Allow 5% imbalance
+        if abs(hl_size + pacifica_size) > (abs(max(abs(hl_size), abs(pacifica_size))) * 0.05): # Allow 5% imbalance
             logger.error(f"{Colors.RED}Position sizes for {symbol} are not delta-neutral! HL: {hl_size}, Pacifica: {pacifica_size}. Manual cleanup required.{Colors.RESET}")
             state_mgr.set_state(BotState.ERROR)
             return False
@@ -462,6 +500,7 @@ async def recover_state(state_mgr: StateManager, hl_client: HyperliquidConnector
 class RotationBot:
     def __init__(self, state_file: str, config_file: str):
         self.state_mgr = StateManager(state_file)
+        self.config_file = config_file  # Store config file path for reloading
         self.config = BotConfig.load_from_file(config_file)
         self.shutdown_requested = False
         
@@ -509,6 +548,53 @@ class RotationBot:
     def _signal_handler(self, signum, frame):
         logger.info(f"\n{Colors.YELLOW}🛑 Shutdown signal received. Stopping gracefully...{Colors.RESET}")
         self.shutdown_requested = True
+
+    def reload_config(self):
+        """Reload configuration from file and re-filter symbols. Only call when no position is open."""
+        try:
+            # Safety check: ensure no position is open
+            if self.state_mgr.state.get("current_position") is not None:
+                logger.warning(f"{Colors.YELLOW}⚠️ Config reload attempted while position is open. Skipping reload for safety.{Colors.RESET}")
+                return False
+
+            logger.info(f"{Colors.CYAN}🔄 Reloading configuration from {self.config_file}...{Colors.RESET}")
+            old_config = self.config
+            new_config = BotConfig.load_from_file(self.config_file)
+
+            # Check if any important parameters changed
+            changes = []
+            if new_config.leverage != old_config.leverage:
+                changes.append(f"leverage: {old_config.leverage}x → {new_config.leverage}x")
+            if new_config.base_capital_allocation != old_config.base_capital_allocation:
+                changes.append(f"base_capital: ${old_config.base_capital_allocation:.2f} → ${new_config.base_capital_allocation:.2f}")
+            if new_config.hold_duration_hours != old_config.hold_duration_hours:
+                changes.append(f"hold_duration: {old_config.hold_duration_hours}h → {new_config.hold_duration_hours}h")
+            if new_config.min_net_apr_threshold != old_config.min_net_apr_threshold:
+                changes.append(f"min_apr_threshold: {old_config.min_net_apr_threshold}% → {new_config.min_net_apr_threshold}%")
+            if new_config.wait_between_cycles_minutes != old_config.wait_between_cycles_minutes:
+                changes.append(f"wait_time: {old_config.wait_between_cycles_minutes}min → {new_config.wait_between_cycles_minutes}min")
+            if new_config.check_interval_seconds != old_config.check_interval_seconds:
+                changes.append(f"check_interval: {old_config.check_interval_seconds}s → {new_config.check_interval_seconds}s")
+            if set(new_config.symbols_to_monitor) != set(old_config.symbols_to_monitor):
+                changes.append(f"symbols: {old_config.symbols_to_monitor} → {new_config.symbols_to_monitor}")
+
+            # Apply new config
+            self.config = new_config
+
+            # Re-filter symbols to ensure they're available on both exchanges
+            self._filter_tradable_symbols()
+
+            if changes:
+                logger.info(f"{Colors.GREEN}✅ Config reloaded successfully. Changes detected:{Colors.RESET}")
+                for change in changes:
+                    logger.info(f"   • {change}")
+            else:
+                logger.info(f"{Colors.GREEN}✅ Config reloaded (no changes detected){Colors.RESET}")
+
+            return True
+        except Exception as e:
+            logger.error(f"{Colors.RED}Failed to reload config: {e}. Keeping existing configuration.{Colors.RESET}")
+            return False
 
     async def _responsive_sleep(self, duration_seconds: int):
         """Sleeps for a duration in 1-second intervals, checking for shutdown."""
@@ -582,8 +668,12 @@ class RotationBot:
 
     async def start_new_cycle(self):
         self.state_mgr.set_state(BotState.ANALYZING)
+
+        # Reload config to pick up any changes made while bot was running
+        self.reload_config()
+
         logger.info("🔍 Analyzing funding rates for opportunities...")
-        
+
         try:
             # Check balances first
             hl_total, hl_avail = get_hyperliquid_balance(self.hl_client)
@@ -950,62 +1040,101 @@ class RotationBot:
         logger.info(f"Next health check in {self.config.check_interval_seconds} seconds.")
         await self._responsive_sleep(self.config.check_interval_seconds)
 
-    async def close_position(self, is_emergency: bool = False):
+    async def close_position(self, is_emergency: bool = False, max_retries: int = 3):
         if not is_emergency: self.state_mgr.set_state(BotState.CLOSING)
         pos = self.state_mgr.state["current_position"]
         if not pos: logger.warning("Close called but no position in state."); return
         symbol = pos["symbol"]
-        
+
         try:
             hl_pos = self.hl_client.get_position(symbol)
             pacifica_pos = await self.pacifica_client.get_position(symbol)
 
-            # Close positions (synchronous calls)
+            # Close positions with retry logic for each leg
             hl_closed = False
             pacifica_closed = False
 
+            # Try to close Hyperliquid position with retries
             if hl_pos and hl_pos['qty'] != 0:
-                logger.info(f"Closing Hyperliquid position for {symbol}...")
-                hl_result = self.hl_client.market_close(symbol)
-                hl_closed = hl_result is not None
+                for attempt in range(max_retries):
+                    logger.info(f"Closing Hyperliquid position for {symbol} (attempt {attempt + 1}/{max_retries})...")
+                    try:
+                        hl_result = self.hl_client.market_close(symbol)
+                        if hl_result is not None:
+                            hl_closed = True
+                            logger.info(f"{Colors.GREEN}✅ Hyperliquid position closed{Colors.RESET}")
+                            break
+                        else:
+                            logger.warning(f"Hyperliquid close returned None on attempt {attempt + 1}")
+                    except Exception as e:
+                        logger.error(f"Hyperliquid close attempt {attempt + 1} failed: {e}")
+                    if not hl_closed and attempt < max_retries - 1:
+                        await asyncio.sleep(2)  # Wait before retry
             else:
                 hl_closed = True  # No position to close
+                logger.debug(f"No Hyperliquid position to close for {symbol}")
 
+            # Try to close Pacifica position with retries
             if pacifica_pos and pacifica_pos['qty'] != 0:
                 close_qty = abs(pacifica_pos['qty'])
                 close_side = 'sell' if pacifica_pos['qty'] > 0 else 'buy'
-                logger.info(f"Closing Pacifica position for {symbol}...")
-                try:
-                    pacifica_result = self.pacifica_client.place_market_order(symbol, side=close_side, quantity=close_qty, reduce_only=True)
-                    pacifica_closed = pacifica_result is not None
-                except Exception as e:
-                    logger.error(f"Failed to close Pacifica position: {e}")
-                    pacifica_closed = False
+                for attempt in range(max_retries):
+                    logger.info(f"Closing Pacifica position for {symbol}: {close_qty:.4f} {close_side} (attempt {attempt + 1}/{max_retries})...")
+                    try:
+                        pacifica_result = self.pacifica_client.place_market_order(symbol, side=close_side, quantity=close_qty, reduce_only=True)
+                        if pacifica_result is not None:
+                            pacifica_closed = True
+                            logger.info(f"{Colors.GREEN}✅ Pacifica position closed{Colors.RESET}")
+                            break
+                        else:
+                            logger.warning(f"Pacifica close returned None on attempt {attempt + 1}")
+                    except Exception as e:
+                        logger.error(f"Pacifica close attempt {attempt + 1} failed: {e}")
+                    if not pacifica_closed and attempt < max_retries - 1:
+                        await asyncio.sleep(2)  # Wait before retry
+                        # Re-check position in case it was filled
+                        pacifica_pos = await self.pacifica_client.get_position(symbol)
+                        if not pacifica_pos or pacifica_pos['qty'] == 0:
+                            pacifica_closed = True
+                            logger.info(f"{Colors.GREEN}✅ Pacifica position confirmed closed on re-check{Colors.RESET}")
+                            break
+                        close_qty = abs(pacifica_pos['qty'])
             else:
                 pacifica_closed = True  # No position to close
+                logger.debug(f"No Pacifica position to close for {symbol}")
 
-            if not (hl_closed and pacifica_closed):
-                raise RuntimeError("Failed to close one or both positions")
-            elif not hl_pos and not pacifica_pos:
-                logger.warning("No open positions found to close.")
-            
-            logger.info(f"{Colors.GREEN}✅ Successfully closed position for {symbol}.{Colors.RESET}")
-            
+            # Report results
+            if hl_closed and pacifica_closed:
+                logger.info(f"{Colors.GREEN}✅ Successfully closed all positions for {symbol}.{Colors.RESET}")
+            elif hl_closed:
+                logger.error(f"{Colors.RED}⚠️ PARTIAL CLOSE: Hyperliquid closed, but Pacifica position remains for {symbol}!{Colors.RESET}")
+                logger.error(f"{Colors.RED}   Please manually close Pacifica position or restart bot for recovery.{Colors.RESET}")
+                raise RuntimeError(f"Failed to close Pacifica position for {symbol} after {max_retries} attempts")
+            elif pacifica_closed:
+                logger.error(f"{Colors.RED}⚠️ PARTIAL CLOSE: Pacifica closed, but Hyperliquid position remains for {symbol}!{Colors.RESET}")
+                logger.error(f"{Colors.RED}   Please manually close Hyperliquid position or restart bot for recovery.{Colors.RESET}")
+                raise RuntimeError(f"Failed to close Hyperliquid position for {symbol} after {max_retries} attempts")
+            else:
+                raise RuntimeError(f"Failed to close both positions for {symbol} after {max_retries} attempts")
+
             if not is_emergency:
                 # PnL Calculation
-                hl_balance_after = get_hyperliquid_balance(self.hl_client)[0]
-                pacifica_balance_after = get_pacifica_balance(self.pacifica_client)[0]
-                pnl_hl = hl_balance_after - pos['entry_balance_hl']
-                pnl_pacifica = pacifica_balance_after - pos['entry_balance_pacifica']
-                total_pnl = pnl_hl + pnl_pacifica
-                
-                logger.info(f"💵 Cycle PnL | Hyperliquid: ${pnl_hl:+.2f} | Pacifica: ${pnl_pacifica:+.2f} | Total: ${total_pnl:+.2f}")
-                
-                stats = self.state_mgr.state["cumulative_stats"]
-                stats["total_cycles"] += 1
-                stats["successful_cycles"] += 1
-                stats["total_realized_pnl"] += total_pnl
-            
+                try:
+                    hl_balance_after = get_hyperliquid_balance(self.hl_client)[0]
+                    pacifica_balance_after = get_pacifica_balance(self.pacifica_client)[0]
+                    pnl_hl = hl_balance_after - pos.get('entry_balance_hl', hl_balance_after)
+                    pnl_pacifica = pacifica_balance_after - pos.get('entry_balance_pacifica', pacifica_balance_after)
+                    total_pnl = pnl_hl + pnl_pacifica
+
+                    logger.info(f"💵 Cycle PnL | Hyperliquid: ${pnl_hl:+.2f} | Pacifica: ${pnl_pacifica:+.2f} | Total: ${total_pnl:+.2f}")
+
+                    stats = self.state_mgr.state["cumulative_stats"]
+                    stats["total_cycles"] += 1
+                    stats["successful_cycles"] += 1
+                    stats["total_realized_pnl"] += total_pnl
+                except Exception as e:
+                    logger.warning(f"Could not calculate PnL: {e}")
+
             self.state_mgr.state["current_position"] = None
             self.state_mgr.set_state(BotState.WAITING)
         except Exception as e:
