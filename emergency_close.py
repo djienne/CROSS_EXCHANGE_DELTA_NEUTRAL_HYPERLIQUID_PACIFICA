@@ -199,11 +199,7 @@ async def main():
     # Confirmation
     if not args.force and not args.dry_run:
         print(f"{Colors.YELLOW}{Colors.BOLD}WARNING: This will close all positions listed above.{Colors.RESET}")
-        confirm = input(f"Type 'YES' to confirm: ")
-        if confirm != 'YES':
-            print(f"\n{Colors.YELLOW}Operation cancelled.{Colors.RESET}\n")
-            hl_client.close()
-            return
+        input(f"Press {Colors.BOLD}ENTER{Colors.RESET} to confirm (or Ctrl+C to cancel): ")
         print()
 
     # Close positions
