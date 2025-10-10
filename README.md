@@ -1,7 +1,7 @@
 # 🤖 Hyperliquid-Pacifica Cross-Exchange Funding Rate Delta Neutral Bot
 
 Automated delta-neutral bot that captures funding rate spreads between Hyperliquid and Pacifica perpetual futures exchanges.
-Can be also used to farm trading volume while limiting risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
+Can be also used to farm trading volume while limit risk (refreshes positions every `hold_duration_hours=12` hours by default, but can be changed).
 
 **💰 Support this project**:
 - **Hyperliquid**: Sign up with [this referral link](https://app.hyperliquid.xyz/join/FREQTRADE) for 10% fee reduction
@@ -98,7 +98,7 @@ See `DOCKER.md` for detailed deployment guide.
 
 ## 🔄 How It Works
 
-1. **🔍 Analyze**: Fetches funding rates from both exchanges every cycle
+1. **🔍 Analyze**: Fetches funding rates from both exchanges and displays comparison table at startup and before each cycle
 2. **🎯 Select**: Chooses symbol with highest net APR above threshold
 3. **📈 Open**: Opens delta-neutral position (long/short) with synchronized leverage
 4. **⏱️ Hold**: Monitors position health, PnL, and stop-loss for configured duration
@@ -110,6 +110,7 @@ See `DOCKER.md` for detailed deployment guide.
 - ✅ **20x Leverage Hard Cap**: Never exceeds 20x regardless of config
 - ✅ **Leverage Synchronization**: Both exchanges use identical leverage
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
+- ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
 - ✅ **Symbol Filtering**: Only trades symbols available on both exchanges
 - ✅ **State Recovery**: Automatically recovers position state after restart
 - ✅ **Quantity Precision**: Uses coarser step size to ensure identical quantities
@@ -159,6 +160,31 @@ The bot displays comprehensive color-coded status during position holding (every
 - Total unrealized PnL
 - **Risk metrics**: Stop-loss level, current PnL %, worst leg performance, distance to stop-loss
 
+## 📊 Funding Rates Checker
+
+Check current funding rates across all symbols without running the bot:
+
+```bash
+# View funding rates for symbols in bot_config.json
+python show_funding_rates.py
+
+# Check specific symbols
+python show_funding_rates.py --symbols BTC ETH SOL
+
+# Use custom config file
+python show_funding_rates.py --config my_config.json
+
+# Set custom threshold for highlighting (default: 5.0%)
+python show_funding_rates.py --threshold 10.0
+```
+
+**Features:**
+- 🎯 Shows real-time funding rates from both exchanges
+- 📈 Calculates net APR spread for each symbol
+- 🎨 Color-coded opportunities (green = above threshold)
+- 📊 Sorted by best opportunities first
+- ⚡ Quick spot-check without starting the bot
+
 ## 🚨 Emergency Position Closer
 
 Close all open positions on both exchanges:
@@ -182,13 +208,13 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 ## 📁 Files
 
 - `hyperliquid_pacifica_hedge.py` - Main bot
+- `show_funding_rates.py` - Funding rates checker utility
 - `emergency_close.py` - Emergency position closer
 - `hyperliquid_connector.py` - Hyperliquid exchange wrapper
 - `pacifica_client.py` - Pacifica exchange client
 - `bot_config.json` - Configuration
 - `bot_state_hl_pacifica.json` - Persistent state (auto-created)
 - `logs/hyperliquid_pacifica_hedge.log` - Log file (resets on start)
-```
 
 ## ⚠️ Important Notes
 
@@ -217,8 +243,6 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
-
-
 
 
 

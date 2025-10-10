@@ -62,11 +62,18 @@ This is a **delta-neutral funding rate arbitrage bot** that automatically captur
 - Ensures identical quantity on both sides for true delta-neutral hedge
 - Rounds DOWN using Decimal arithmetic to avoid rejection
 
-**Funding Rate Decision** (lines 208-248)
+**Funding Rate Decision** (lines 216-256)
 - Fetches funding rates from both exchanges (hourly percentages)
 - Converts to APR: `rate × 24 × 365 × 100`
 - Goes LONG on exchange with lower funding rate, SHORT on higher
 - Net APR = absolute difference between the two rates
+
+**Funding Rates Table Display** (lines 258-323)
+- `display_funding_rates_table()` shows formatted comparison of all funding rates
+- Displays at bot startup (after state recovery, lines 700-709) and before opening position (line 775)
+- Table includes: Symbol, Hyperliquid APR, Pacifica APR, Net Spread, Strategy
+- Color-coded: Green for opportunities above threshold, gray for below
+- Sorted by net APR descending, shows best opportunity in summary
 
 **State Recovery** (lines 371-450)
 - On startup, scans all configured symbols for existing positions
@@ -114,6 +121,30 @@ python hyperliquid_pacifica_hedge.py
 # With custom config/state files
 python hyperliquid_pacifica_hedge.py --config-file custom_config.json --state-file custom_state.json
 ```
+
+### Funding Rates Checker
+
+```bash
+# View funding rates for symbols in bot_config.json
+python show_funding_rates.py
+
+# Check specific symbols
+python show_funding_rates.py --symbols BTC ETH SOL
+
+# Use custom config file
+python show_funding_rates.py --config my_config.json
+
+# Set custom threshold for highlighting (default: 5.0%)
+python show_funding_rates.py --threshold 10.0
+```
+
+The `show_funding_rates.py` script:
+- Standalone utility to check funding rates without running the bot
+- Displays formatted table with real-time rates from both exchanges
+- Calculates net APR spread for each symbol
+- Color-coded: Green for opportunities above threshold
+- Sorted by best opportunities first
+- Filters to symbols available on both exchanges
 
 ### Emergency Position Closer
 
@@ -277,13 +308,17 @@ Risk Management:
 
 ## Key Code Locations
 
+- **Funding rates fetch function**: Lines 216-256
+- **Funding rates table display**: Lines 258-323
+- **Funding table at startup**: Lines 700-709
+- **Funding table before position open**: Line 775
 - **20x leverage hard cap**: Line 595
 - **Initial capital tracking**: Lines 525-537 (fetched at startup if missing)
 - **Long-term PnL display**: Lines 858-864
 - **Leverage setting and validation**: Lines 594-632
 - **2% safety buffer application**: Lines 640-644
 - **Position sizing calculation**: Lines 640-664
-- **Stop-loss formula**: Lines 274-308
+- **Stop-loss formula**: Lines 349-383 (updated line numbers)
 - **Stop-loss check and trigger**: Lines 933-937 (calls close_position if triggered)
 - **Worst leg PnL calculation**: Lines 886-899
 - **State recovery**: Lines 371-450
