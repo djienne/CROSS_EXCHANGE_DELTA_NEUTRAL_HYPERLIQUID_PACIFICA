@@ -26,12 +26,18 @@ import os
 import signal
 import sys
 import time
+import requests
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Add parent directory to path for SDK imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from pacifica_sdk.common.constants import REST_URL
 
 # Import exchange connectors
 from hyperliquid_connector import HyperliquidConnector
@@ -212,6 +218,52 @@ def get_pacifica_balance(client: PacificaClient) -> Tuple[float, float]:
     except Exception as e:
         logger.error(f"Error fetching Pacifica balance: {e}", exc_info=True)
         raise BalanceFetchError(f"Pacifica balance fetch failed: {e}") from e
+
+def get_pacifica_24h_volume(symbol: str) -> float:
+    """
+    Get 24h trading volume for a symbol on Pacifica using kline data.
+
+    Args:
+        symbol: Trading symbol (e.g., "BTC", "ETH")
+
+    Returns:
+        24h volume in USD, or 0 if unable to fetch
+    """
+    try:
+        # Calculate start time (24 hours ago in milliseconds)
+        start_time = int((time.time() - 86400) * 1000)
+
+        url = f"{REST_URL}/kline"
+        params = {
+            "symbol": symbol,
+            "interval": "1h",
+            "start_time": start_time
+        }
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("success"):
+            logger.debug(f"Failed to get kline data for {symbol}")
+            return 0.0
+
+        candles = data.get("data", [])
+
+        # Calculate total volume in USD
+        total_volume_usd = 0.0
+        for candle in candles:
+            volume_base = float(candle.get("v", 0))  # Volume in base currency
+            open_price = float(candle.get("o", 0))
+            close_price = float(candle.get("c", 0))
+            avg_price = (open_price + close_price) / 2
+
+            volume_usd = volume_base * avg_price
+            total_volume_usd += volume_usd
+
+        return total_volume_usd
+    except Exception as e:
+        logger.debug(f"Could not get volume for {symbol}: {e}")
+        return 0.0
 
 async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbols: List[str]) -> List[Dict]:
     """Fetch and compare funding rates for a list of symbols."""
@@ -591,16 +643,17 @@ class RotationBot:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _filter_tradable_symbols(self):
-        """Filters the config's symbols to only include those present on both exchanges."""
+        """Filters the config's symbols to only include those present on both exchanges with sufficient volume."""
         logger.info("Filtering symbols to find those tradable on both exchanges...")
         hl_symbols = set(self.hl_client.coin_to_meta.keys())
         pacifica_symbols = set(self.pacifica_client._market_info.keys())
 
         common_symbols = hl_symbols.intersection(pacifica_symbols)
-        
+
         original_symbols = self.config.symbols_to_monitor
         filtered_symbols = [s for s in original_symbols if s in common_symbols]
 
+        # Filter by exchange availability
         if len(filtered_symbols) < len(original_symbols):
             removed_symbols = set(original_symbols) - set(filtered_symbols)
             logger.warning(f"Removed symbols not available on both exchanges: {', '.join(removed_symbols)}")
@@ -609,8 +662,31 @@ class RotationBot:
             logger.error("No common symbols found between Hyperliquid and Pacifica from the configured list. The bot cannot proceed.")
             sys.exit(1)
 
-        logger.info(f"Final list of monitored symbols: {', '.join(filtered_symbols)}")
-        self.config.symbols_to_monitor = filtered_symbols
+        # Filter by Pacifica volume (minimum $100M in 24h)
+        MIN_PACIFICA_VOLUME = 100_000_000  # $100M
+        logger.info(f"Checking 24h volume on Pacifica (minimum: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...")
+
+        volume_filtered_symbols = []
+        removed_low_volume = []
+
+        for symbol in filtered_symbols:
+            volume = get_pacifica_24h_volume(symbol)
+            if volume >= MIN_PACIFICA_VOLUME:
+                logger.info(f"  ✓ {symbol}: ${volume/1_000_000:.1f}M volume")
+                volume_filtered_symbols.append(symbol)
+            else:
+                logger.warning(f"  ✗ {symbol}: ${volume/1_000_000:.1f}M volume (below ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M threshold)")
+                removed_low_volume.append(symbol)
+
+        if removed_low_volume:
+            logger.warning(f"{Colors.YELLOW}Removed symbols with insufficient Pacifica volume: {', '.join(removed_low_volume)}{Colors.RESET}")
+
+        if not volume_filtered_symbols:
+            logger.error(f"{Colors.RED}No symbols meet the minimum volume requirement of ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M on Pacifica. The bot cannot proceed.{Colors.RESET}")
+            sys.exit(1)
+
+        logger.info(f"{Colors.GREEN}Final list of monitored symbols: {', '.join(volume_filtered_symbols)}{Colors.RESET}")
+        self.config.symbols_to_monitor = volume_filtered_symbols
 
     def _signal_handler(self, signum, frame):
         logger.info(f"\n{Colors.YELLOW}🛑 Shutdown signal received. Stopping gracefully...{Colors.RESET}")

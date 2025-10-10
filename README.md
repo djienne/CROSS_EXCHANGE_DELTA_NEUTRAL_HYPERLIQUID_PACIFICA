@@ -112,6 +112,7 @@ See `DOCKER.md` for detailed deployment guide.
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
 - ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
 - ✅ **Symbol Filtering**: Only trades symbols available on both exchanges
+- ✅ **Volume Filtering**: Filters out symbols with <$100M 24h volume on Pacifica for better liquidity
 - ✅ **State Recovery**: Automatically recovers position state after restart
 - ✅ **Quantity Precision**: Uses coarser step size to ensure identical quantities
 - ✅ **Long-term PnL Tracking**: Tracks initial capital and displays cumulative performance across all cycles
@@ -185,6 +186,29 @@ python show_funding_rates.py --threshold 10.0
 - 📊 Sorted by best opportunities first
 - ⚡ Quick spot-check without starting the bot
 
+## 📊 24h Volume Checker
+
+Check trading volumes across both exchanges to assess liquidity:
+
+```bash
+# View volumes for symbols in bot_config.json
+python show_volumes.py
+
+# Check specific symbols
+python show_volumes.py --symbols BTC ETH SOL
+
+# Use custom config file
+python show_volumes.py --config my_config.json
+```
+
+**Features:**
+- 📊 Displays 24h trading volume from both exchanges
+- 💰 Calculates total combined volume
+- 📈 Shows market share distribution (Hyperliquid vs Pacifica)
+- 🎨 Color-coded by volume tier (green >$1M, yellow >$100K)
+- 📉 Sorted by total volume descending
+- ⚡ Uses kline data for accurate Pacifica volumes
+
 ## 🚨 Emergency Position Closer
 
 Close all open positions on both exchanges:
@@ -209,6 +233,7 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 
 - `hyperliquid_pacifica_hedge.py` - Main bot
 - `show_funding_rates.py` - Funding rates checker utility
+- `show_volumes.py` - 24h volume checker utility
 - `emergency_close.py` - Emergency position closer
 - `hyperliquid_connector.py` - Hyperliquid exchange wrapper
 - `pacifica_client.py` - Pacifica exchange client
@@ -220,6 +245,7 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 
 - **Single Position**: Bot manages one position at a time
 - **Symbol Filtering**: Symbols not on both exchanges are automatically ignored
+- **Volume Filtering**: Symbols with <$100M 24h volume on Pacifica are filtered out at startup
 - **Cycle Tracking**: Cycle number persists across restarts
 - **Initial Capital**: Captured at first run and used for long-term PnL calculation
 - **Monitoring Frequency**: Position checked every 60 seconds by default (`check_interval_seconds`)
