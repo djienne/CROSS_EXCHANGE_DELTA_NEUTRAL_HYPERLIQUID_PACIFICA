@@ -255,6 +255,73 @@ async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: 
 
     return results
 
+def display_funding_rates_table(opportunities: List[Dict], min_threshold: float = 0.0):
+    """Display funding rates comparison in a formatted table."""
+    if not opportunities:
+        logger.info(f"{Colors.YELLOW}No funding rate data available to display{Colors.RESET}")
+        return
+
+    # Build table header
+    table_lines = []
+    table_lines.append(f"\n{Colors.BOLD}{Colors.CYAN}{'='*95}{Colors.RESET}")
+    table_lines.append(f"{Colors.BOLD}💸 Funding Rates Comparison (APR %){Colors.RESET}")
+    table_lines.append(f"{Colors.CYAN}{'='*95}{Colors.RESET}")
+
+    # Column headers
+    header = f"{Colors.BOLD}{'Symbol':<10} {'Hyperliquid':>12} {'Pacifica':>12} {'Net Spread':>12}  {'Strategy':<35}{Colors.RESET}"
+    table_lines.append(header)
+    table_lines.append(f"{Colors.GRAY}{'-'*95}{Colors.RESET}")
+
+    # Sort by net APR descending
+    sorted_opps = sorted(opportunities, key=lambda x: x["net_apr"], reverse=True)
+
+    for opp in sorted_opps:
+        symbol = opp["symbol"]
+        hl_apr = opp["hl_apr"]
+        pac_apr = opp["pacifica_apr"]
+        net_apr = opp["net_apr"]
+        long_exch = opp["long_exch"]
+        short_exch = opp["short_exch"]
+
+        # Color coding
+        hl_color = Colors.GREEN if hl_apr >= 0 else Colors.RED
+        pac_color = Colors.GREEN if pac_apr >= 0 else Colors.RED
+
+        # Net APR color: green if above threshold, yellow otherwise
+        if net_apr >= min_threshold:
+            net_color = Colors.GREEN
+            symbol_color = Colors.YELLOW
+        else:
+            net_color = Colors.GRAY
+            symbol_color = Colors.GRAY
+
+        # Strategy description
+        strategy = f"LONG {long_exch[:2]}, SHORT {short_exch[:2]}"
+
+        # Format row
+        row = (f"{symbol_color}{symbol:<10}{Colors.RESET} "
+               f"{hl_color}{hl_apr:>11.2f}%{Colors.RESET} "
+               f"{pac_color}{pac_apr:>11.2f}%{Colors.RESET} "
+               f"{net_color}{net_apr:>11.2f}%{Colors.RESET}  "
+               f"{Colors.GRAY}{strategy:<35}{Colors.RESET}")
+        table_lines.append(row)
+
+    table_lines.append(f"{Colors.CYAN}{'='*95}{Colors.RESET}")
+
+    # Summary
+    best_opp = sorted_opps[0]
+    if best_opp["net_apr"] >= min_threshold:
+        summary = (f"{Colors.GREEN}✓ Best opportunity: {best_opp['symbol']} "
+                  f"({best_opp['net_apr']:.2f}% spread){Colors.RESET}")
+    else:
+        summary = (f"{Colors.YELLOW}⚠ No opportunities above {min_threshold:.1f}% threshold. "
+                  f"Best: {best_opp['symbol']} ({best_opp['net_apr']:.2f}%){Colors.RESET}")
+    table_lines.append(summary)
+    table_lines.append(f"{Colors.CYAN}{'='*95}{Colors.RESET}\n")
+
+    # Log as single message
+    logger.info("\n".join(table_lines))
+
 async def get_position_pnl(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbol: str) -> Dict:
     """Get unrealized PnL from both exchanges."""
     pnl_data = {
@@ -630,6 +697,17 @@ class RotationBot:
             logger.error(f"{Colors.RED}State recovery failed. Exiting.{Colors.RESET}")
             return
 
+        # Display funding rates table at startup
+        try:
+            logger.info(f"{Colors.CYAN}📊 Fetching current funding rates...{Colors.RESET}")
+            startup_opportunities = await fetch_funding_rates(self.hl_client, self.pacifica_client, self.config.symbols_to_monitor)
+            if startup_opportunities:
+                display_funding_rates_table(startup_opportunities, self.config.min_net_apr_threshold)
+            else:
+                logger.warning(f"{Colors.YELLOW}No funding rate data available at startup{Colors.RESET}")
+        except Exception as e:
+            logger.warning(f"Could not fetch funding rates at startup: {e}")
+
         try:
             while not self.shutdown_requested:
                 try:
@@ -692,6 +770,9 @@ class RotationBot:
                 logger.warning("No funding rate opportunities found.")
                 self.state_mgr.set_state(BotState.WAITING)
                 return
+
+            # Display funding rates table before making decision
+            display_funding_rates_table(opportunities, self.config.min_net_apr_threshold)
 
             opportunities.sort(key=lambda x: x["net_apr"], reverse=True)
             best_opportunity = opportunities[0]
