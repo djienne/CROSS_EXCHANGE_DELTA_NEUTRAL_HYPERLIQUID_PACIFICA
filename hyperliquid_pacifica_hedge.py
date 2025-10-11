@@ -265,6 +265,41 @@ def get_pacifica_24h_volume(symbol: str) -> float:
         logger.debug(f"Could not get volume for {symbol}: {e}")
         return 0.0
 
+async def check_price_spread(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbol: str) -> Tuple[bool, float]:
+    """
+    Check if price spread between exchanges is acceptable.
+
+    Args:
+        hl_client: Hyperliquid connector
+        pacifica_client: Pacifica client
+        symbol: Trading symbol
+
+    Returns:
+        Tuple of (is_acceptable: bool, spread_pct: float)
+    """
+    try:
+        # Get Hyperliquid mid price
+        hl_price_str = hl_client.get_mid_price(symbol)
+        if not hl_price_str:
+            logger.warning(f"No mid price for {symbol} on Hyperliquid")
+            return False, 999.0
+
+        hl_price = float(hl_price_str)
+
+        # Get Pacifica mark price
+        pacifica_price = await pacifica_client.get_mark_price(symbol)
+        if pacifica_price <= 0:
+            logger.warning(f"No mark price for {symbol} on Pacifica")
+            return False, 999.0
+
+        # Calculate spread as percentage
+        spread_pct = abs(hl_price - pacifica_price) / hl_price * 100
+
+        return True, spread_pct
+    except Exception as e:
+        logger.warning(f"Could not check price spread for {symbol}: {e}")
+        return False, 999.0
+
 async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbols: List[str]) -> List[Dict]:
     """Fetch and compare funding rates for a list of symbols."""
     try:
@@ -847,17 +882,56 @@ class RotationBot:
                 self.state_mgr.set_state(BotState.WAITING)
                 return
 
-            # Display funding rates table before making decision
+            # Display funding rates table before filtering
             display_funding_rates_table(opportunities, self.config.min_net_apr_threshold)
 
-            opportunities.sort(key=lambda x: x["net_apr"], reverse=True)
-            best_opportunity = opportunities[0]
+            # Filter by volume (re-check regularly, not just at startup)
+            MIN_PACIFICA_VOLUME = 100_000_000  # $100M
+            logger.info(f"{Colors.CYAN}🔍 Filtering opportunities by volume (min: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...{Colors.RESET}")
+
+            volume_filtered_opps = []
+            for opp in opportunities:
+                symbol = opp["symbol"]
+                volume = get_pacifica_24h_volume(symbol)
+                if volume >= MIN_PACIFICA_VOLUME:
+                    logger.debug(f"  ✓ {symbol}: ${volume/1_000_000:.1f}M volume")
+                    volume_filtered_opps.append(opp)
+                else:
+                    logger.warning(f"  ✗ {symbol}: ${volume/1_000_000:.1f}M volume (below ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M threshold)")
+
+            if not volume_filtered_opps:
+                logger.warning(f"{Colors.YELLOW}No symbols meet volume requirement. Waiting for next cycle.{Colors.RESET}")
+                self.state_mgr.set_state(BotState.WAITING)
+                return
+
+            # Filter by price spread (max 0.15%)
+            MAX_PRICE_SPREAD = 0.15  # 0.15%
+            logger.info(f"{Colors.CYAN}🔍 Filtering opportunities by price spread (max: {MAX_PRICE_SPREAD}%)...{Colors.RESET}")
+
+            spread_filtered_opps = []
+            for opp in volume_filtered_opps:
+                symbol = opp["symbol"]
+                is_acceptable, spread_pct = await check_price_spread(self.hl_client, self.pacifica_client, symbol)
+                if is_acceptable and spread_pct <= MAX_PRICE_SPREAD:
+                    logger.debug(f"  ✓ {symbol}: {spread_pct:.3f}% spread")
+                    spread_filtered_opps.append(opp)
+                else:
+                    logger.warning(f"  ✗ {symbol}: {spread_pct:.3f}% spread (above {MAX_PRICE_SPREAD}% threshold)")
+
+            if not spread_filtered_opps:
+                logger.warning(f"{Colors.YELLOW}No symbols meet price spread requirement. Waiting for next cycle.{Colors.RESET}")
+                self.state_mgr.set_state(BotState.WAITING)
+                return
+
+            # Select best opportunity from filtered list
+            spread_filtered_opps.sort(key=lambda x: x["net_apr"], reverse=True)
+            best_opportunity = spread_filtered_opps[0]
 
             if best_opportunity["net_apr"] < self.config.min_net_apr_threshold:
                 logger.info(f"Best opportunity ({best_opportunity['symbol']}: {best_opportunity['net_apr']:.2f}%) is below threshold.")
                 self.state_mgr.set_state(BotState.WAITING)
                 return
-            
+
             logger.info(f"🎯 Found best opportunity: {best_opportunity['symbol']} with {best_opportunity['net_apr']:.2f}% APR.")
 
             symbol = best_opportunity['symbol']

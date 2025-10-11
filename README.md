@@ -99,11 +99,14 @@ See `DOCKER.md` for detailed deployment guide.
 ## 🔄 How It Works
 
 1. **🔍 Analyze**: Fetches funding rates from both exchanges and displays comparison table at startup and before each cycle
-2. **🎯 Select**: Chooses symbol with highest net APR above threshold
-3. **📈 Open**: Opens delta-neutral position (long/short) with synchronized leverage
-4. **⏱️ Hold**: Monitors position health, PnL, and stop-loss for configured duration
-5. **📉 Close**: Closes both positions simultaneously
-6. **⏸️ Wait**: Brief cooldown before next cycle
+2. **🧹 Filter**: Dynamically filters symbols by:
+   - **Volume**: Re-checks 24h volume on Pacifica (min $100M) every cycle
+   - **Price Spread**: Excludes symbols with >0.15% price difference between exchanges
+3. **🎯 Select**: Chooses symbol with highest net APR above threshold from filtered list
+4. **📈 Open**: Opens delta-neutral position (long/short) with synchronized leverage
+5. **⏱️ Hold**: Monitors position health, PnL, and stop-loss for configured duration
+6. **📉 Close**: Closes both positions simultaneously
+7. **⏸️ Wait**: Brief cooldown before next cycle
 
 ## 🛡️ Safety Features
 
@@ -112,7 +115,8 @@ See `DOCKER.md` for detailed deployment guide.
 - ✅ **Dynamic Stop-Loss**: Tighter stops at higher leverage (~60% capital loss trigger), **triggered by worst leg PnL** to protect against one-sided losses
 - ✅ **2% Safety Buffer**: Automatic reduction of base capital allocation
 - ✅ **Symbol Filtering**: Only trades symbols available on both exchanges
-- ✅ **Volume Filtering**: Filters out symbols with <$100M 24h volume on Pacifica for better liquidity
+- ✅ **Volume Filtering**: Re-checks 24h volume every cycle (min $100M on Pacifica) for consistent liquidity
+- ✅ **Price Spread Filtering**: Rejects symbols with >0.15% price difference between exchanges to ensure tight execution
 - ✅ **State Recovery**: Automatically recovers position state after restart
 - ✅ **Quantity Precision**: Uses coarser step size to ensure identical quantities
 - ✅ **Long-term PnL Tracking**: Tracks initial capital and displays cumulative performance across all cycles
@@ -245,7 +249,8 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 
 - **Single Position**: Bot manages one position at a time
 - **Symbol Filtering**: Symbols not on both exchanges are automatically ignored
-- **Volume Filtering**: Symbols with <$100M 24h volume on Pacifica are filtered out at startup
+- **Dynamic Volume Filtering**: Symbols with <$100M 24h volume on Pacifica are re-checked every cycle (not just at startup)
+- **Price Spread Filtering**: Symbols with >0.15% price difference are excluded from each cycle to ensure tight execution
 - **Cycle Tracking**: Cycle number persists across restarts
 - **Initial Capital**: Captured at first run and used for long-term PnL calculation
 - **Monitoring Frequency**: Position checked every 60 seconds by default (`check_interval_seconds`)

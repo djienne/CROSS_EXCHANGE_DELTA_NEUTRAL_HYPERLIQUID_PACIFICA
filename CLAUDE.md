@@ -54,12 +54,22 @@ The bot can also be used to farm trading volume while limiting risk by refreshin
 - Uses same closing logic as `emergency_close.py` (tested and verified)
 - Checked during monitoring phase every `check_interval_seconds` (default 60s)
 
-**Symbol Filtering** (lines 645-689)
-- At startup, bot filters `symbols_to_monitor` to only those available on BOTH exchanges
-- Then filters by Pacifica 24h volume (minimum $100M) using kline data
-- Logs removed symbols with volume information (✓ or ✗ indicators)
-- Exits if no symbols meet both availability and volume requirements
-- Prevents trading on illiquid markets that could cause slippage issues
+**Symbol Filtering**
+- **At Startup** (lines 645-689): Filters `symbols_to_monitor` to only those available on BOTH exchanges
+- **Per Cycle** (lines 888-924): Dynamically re-filters by:
+  - **Volume** (lines 888-905): Re-checks Pacifica 24h volume (minimum $100M) using kline data
+  - **Price Spread** (lines 907-924): Excludes symbols with >0.15% price difference between exchanges
+- Logs removed symbols with volume/spread information (✓ or ✗ indicators)
+- Skips cycle if no symbols meet all requirements (volume + spread)
+- Prevents trading on illiquid markets or symbols with wide bid-ask spreads that could cause slippage
+
+**Price Spread Check** (lines 268-301)
+- `check_price_spread()` function compares mid prices between exchanges
+- Fetches Hyperliquid mid price and Pacifica mark price
+- Calculates spread percentage: `abs(hl_price - pacifica_price) / hl_price * 100`
+- Returns tuple: (is_acceptable: bool, spread_pct: float)
+- Maximum acceptable spread: 0.15%
+- Ensures tight execution and true delta-neutral entry
 
 **Quantity Synchronization** (lines 674-703)
 - Uses coarser (larger) step size between both exchanges for quantity rounding
@@ -248,14 +258,15 @@ See `DOCKER.md` for comprehensive deployment guide including:
 
 ## Critical Safety Constraints
 
-1. **Leverage Synchronization**: Both exchanges MUST use same leverage. Bot enforces this at lines 810-827.
-2. **20x Hard Cap**: Never exceeds 20x leverage regardless of config or exchange limits (line 790: `MAX_ALLOWED_LEVERAGE = 20`)
-3. **2% Safety Buffer**: Base capital automatically reduced by 2% before leverage multiplication (line 834)
-4. **Position Size Limits**: Auto-reduces if insufficient margin, uses 95% of available (lines 838-856)
-5. **Delta-Neutral Validation**: State recovery checks positions are opposite and equal within 5% (line 514)
-6. **Single Position Limit**: Bot only manages one position at a time. Multiple positions trigger ERROR state (lines 464-467)
-7. **Stop-Loss Buffer**: Dynamic stop-loss leaves ~40% buffer before liquidation (lines 349-383). **Triggered by worst leg PnL** to protect against one-sided losses
-8. **Volume Filtering**: Symbols with <$100M 24h volume on Pacifica are automatically filtered out at startup (lines 665-689)
+1. **Leverage Synchronization**: Both exchanges MUST use same leverage. Bot enforces this at lines 886-903.
+2. **20x Hard Cap**: Never exceeds 20x leverage regardless of config or exchange limits (line 866: `MAX_ALLOWED_LEVERAGE = 20`)
+3. **2% Safety Buffer**: Base capital automatically reduced by 2% before leverage multiplication (line 910)
+4. **Position Size Limits**: Auto-reduces if insufficient margin, uses 95% of available (lines 914-926)
+5. **Delta-Neutral Validation**: State recovery checks positions are opposite and equal within 5% (line 566)
+6. **Single Position Limit**: Bot only manages one position at a time. Multiple positions trigger ERROR state (lines 516-519)
+7. **Stop-Loss Buffer**: Dynamic stop-loss leaves ~40% buffer before liquidation (lines 401-435). **Triggered by worst leg PnL** to protect against one-sided losses
+8. **Volume Filtering**: Symbols with <$100M 24h volume on Pacifica are **re-checked every cycle** (lines 888-905)
+9. **Price Spread Filtering**: Symbols with >0.15% price difference between exchanges are excluded every cycle (lines 907-924)
 
 ## Status Display
 
@@ -334,29 +345,32 @@ Risk Management:
 ## Key Code Locations
 
 - **Pacifica volume fetch function**: Lines 222-266 (uses kline data for 24h volume)
-- **Funding rates fetch function**: Lines 268-308
-- **Funding rates table display**: Lines 310-375
-- **Funding table at startup**: Lines 750-759
-- **Funding table before position open**: Line 825
-- **20x leverage hard cap**: Line 790
-- **Initial capital tracking**: Lines 682-694 (fetched at startup if missing)
-- **Long-term PnL display**: Lines 1033-1039
-- **Symbol filtering (availability)**: Lines 647-663
-- **Volume filtering (liquidity)**: Lines 665-689
-- **Leverage setting and validation**: Lines 789-830
-- **2% safety buffer application**: Lines 834-836
-- **Position sizing calculation**: Lines 832-856
-- **Stop-loss formula**: Lines 349-383
-- **Stop-loss check and trigger**: Lines 1108-1112 (calls close_position if triggered)
-- **Worst leg PnL calculation**: Lines 1061-1074
-- **State recovery**: Lines 446-563
-- **Quantity synchronization**: Lines 870-899
-- **Position opening**: Lines 865-937
-- **Position monitoring**: Lines 939-1122
-- **Position closing**: Lines 1124-1223 (identical logic to emergency_close.py)
-- **Status display (consolidated)**: Lines 1003-1106
-- **Risk management display**: Lines 1076-1101
-- **Config parameter migration**: Lines 121-125
+- **Price spread check function**: Lines 268-301 (compares mid prices between exchanges)
+- **Funding rates fetch function**: Lines 303-343
+- **Funding rates table display**: Lines 345-410
+- **Funding table at startup**: Lines 777-785
+- **Funding table before position open**: Line 886
+- **Volume filtering (per cycle)**: Lines 888-905 (re-checks every cycle, not just startup)
+- **Price spread filtering (per cycle)**: Lines 907-924 (max 0.15% spread)
+- **20x leverage hard cap**: Line 866
+- **Initial capital tracking**: Lines 758-770 (fetched at startup if missing)
+- **Long-term PnL display**: Lines 1110-1115
+- **Symbol filtering (availability at startup)**: Lines 645-663
+- **Volume filtering (at startup)**: Lines 665-689
+- **Leverage setting and validation**: Lines 865-903
+- **2% safety buffer application**: Lines 910-912
+- **Position sizing calculation**: Lines 908-931
+- **Stop-loss formula**: Lines 401-435
+- **Stop-loss check and trigger**: Lines 1184-1188 (calls close_position if triggered)
+- **Worst leg PnL calculation**: Lines 1137-1161
+- **State recovery**: Lines 498-615
+- **Quantity synchronization**: Lines 946-975
+- **Position opening**: Lines 941-1013
+- **Position monitoring**: Lines 1015-1198
+- **Position closing**: Lines 1200-1299 (identical logic to emergency_close.py)
+- **Status display (consolidated)**: Lines 1079-1182
+- **Risk management display**: Lines 1152-1177
+- **Config parameter migration**: Lines 129-131
 
 ## Emergency Procedures
 
@@ -380,12 +394,15 @@ python emergency_close.py --force  # No confirmation
 
 ## Important Notes
 
-- Log file resets on every script start (mode='w' at line 59)
+- Log file resets on every script start (mode='w' at line 65)
 - Cycle counter persists across restarts via state file
-- Bot exits if no common symbols found between exchanges (lines 662-663)
-- Bot exits if no symbols meet $100M volume requirement on Pacifica (lines 684-686)
-- Unicode symbols (✓, ✗) replaced with text ([FOUND], etc.) to avoid Windows console errors
-- All timestamps use UTC with proper timezone awareness (lines 749-756)
-- PnL calculation compares entry balance to current balance after closing (lines 943-954)
+- Bot exits if no common symbols found between exchanges at startup (lines 661-663)
+- Bot exits if no symbols meet $100M volume requirement on Pacifica at startup (lines 684-686)
+- **Volume filtering happens every cycle** (lines 888-905), not just at startup
+- **Price spread filtering happens every cycle** (lines 907-924), max 0.15% spread allowed
+- Bot skips cycle and waits if no symbols pass volume/spread filters (lines 902-905, 921-924)
+- Unicode symbols (✓, ✗) used in logs for Windows compatibility
+- All timestamps use UTC with proper timezone awareness (lines 755-770)
+- PnL calculation compares entry balance to current balance after closing (lines 1279-1291)
 - Pacifica DOES support leverage setting via API (`/api/v1/account/leverage` endpoint)
 - Old config files with `notional_per_position` automatically upgrade to `base_capital_allocation`
