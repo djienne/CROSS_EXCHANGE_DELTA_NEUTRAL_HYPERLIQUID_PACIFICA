@@ -697,8 +697,8 @@ class RotationBot:
             logger.error("No common symbols found between Hyperliquid and Pacifica from the configured list. The bot cannot proceed.")
             sys.exit(1)
 
-        # Filter by Pacifica volume (minimum $100M in 24h)
-        MIN_PACIFICA_VOLUME = 100_000_000  # $100M
+        # Filter by Pacifica volume (minimum $50M in 24h)
+        MIN_PACIFICA_VOLUME = 50_000_000  # $50M
         logger.info(f"Checking 24h volume on Pacifica (minimum: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...")
 
         volume_filtered_symbols = []
@@ -886,7 +886,7 @@ class RotationBot:
             display_funding_rates_table(opportunities, self.config.min_net_apr_threshold)
 
             # Filter by volume (re-check regularly, not just at startup)
-            MIN_PACIFICA_VOLUME = 100_000_000  # $100M
+            MIN_PACIFICA_VOLUME = 50_000_000  # $50M
             logger.info(f"{Colors.CYAN}🔍 Filtering opportunities by volume (min: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...{Colors.RESET}")
 
             volume_filtered_opps = []
