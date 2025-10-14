@@ -355,7 +355,7 @@ def display_funding_rates_table(opportunities: List[Dict], min_threshold: float 
     table_lines.append(f"{Colors.CYAN}{'='*95}{Colors.RESET}")
 
     # Column headers
-    header = f"{Colors.BOLD}{'Symbol':<10} {'Hyperliquid':>12} {'Pacifica':>12} {'Net Spread':>12}  {'Strategy':<35}{Colors.RESET}"
+    header = f"{Colors.BOLD}  {'Symbol':<8} {'Hyperliquid':>12} {'Pacifica':>12} {'Net Spread':>12}  {'Strategy':<35}{Colors.RESET}"
     table_lines.append(header)
     table_lines.append(f"{Colors.GRAY}{'-'*95}{Colors.RESET}")
 
@@ -369,6 +369,7 @@ def display_funding_rates_table(opportunities: List[Dict], min_threshold: float 
         net_apr = opp["net_apr"]
         long_exch = opp["long_exch"]
         short_exch = opp["short_exch"]
+        is_current = opp.get("is_current_position", False)
 
         # Color coding
         hl_color = Colors.GREEN if hl_apr >= 0 else Colors.RED
@@ -382,11 +383,18 @@ def display_funding_rates_table(opportunities: List[Dict], min_threshold: float 
             net_color = Colors.GRAY
             symbol_color = Colors.GRAY
 
+        # Highlight current position with cyan/bold
+        if is_current:
+            symbol_color = Colors.CYAN + Colors.BOLD
+
         # Strategy description
         strategy = f"LONG {long_exch[:2]}, SHORT {short_exch[:2]}"
 
+        # Add indicator for current position
+        position_indicator = f"{Colors.CYAN}★{Colors.RESET} " if is_current else "  "
+
         # Format row
-        row = (f"{symbol_color}{symbol:<10}{Colors.RESET} "
+        row = (f"{position_indicator}{symbol_color}{symbol:<8}{Colors.RESET} "
                f"{hl_color}{hl_apr:>11.2f}%{Colors.RESET} "
                f"{pac_color}{pac_apr:>11.2f}%{Colors.RESET} "
                f"{net_color}{net_apr:>11.2f}%{Colors.RESET}  "
@@ -397,6 +405,12 @@ def display_funding_rates_table(opportunities: List[Dict], min_threshold: float 
 
     # Summary
     best_opp = sorted_opps[0]
+    current_position_symbol = None
+    for opp in sorted_opps:
+        if opp.get("is_current_position", False):
+            current_position_symbol = opp["symbol"]
+            break
+
     if best_opp["net_apr"] >= min_threshold:
         summary = (f"{Colors.GREEN}✓ Best opportunity: {best_opp['symbol']} "
                   f"({best_opp['net_apr']:.2f}% spread){Colors.RESET}")
@@ -404,6 +418,16 @@ def display_funding_rates_table(opportunities: List[Dict], min_threshold: float 
         summary = (f"{Colors.YELLOW}⚠ No opportunities above {min_threshold:.1f}% threshold. "
                   f"Best: {best_opp['symbol']} ({best_opp['net_apr']:.2f}%){Colors.RESET}")
     table_lines.append(summary)
+
+    # Add note about current position if viewing during monitoring
+    if current_position_symbol:
+        if current_position_symbol == best_opp["symbol"]:
+            table_lines.append(f"{Colors.CYAN}★ Currently holding the best opportunity{Colors.RESET}")
+        else:
+            # Find current position's APR
+            current_apr = next((opp["net_apr"] for opp in sorted_opps if opp["symbol"] == current_position_symbol), 0)
+            table_lines.append(f"{Colors.CYAN}★ Currently holding: {current_position_symbol} ({current_apr:.2f}% spread){Colors.RESET}")
+
     table_lines.append(f"{Colors.CYAN}{'='*95}{Colors.RESET}\n")
 
     # Log as single message
@@ -678,7 +702,7 @@ class RotationBot:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _filter_tradable_symbols(self):
-        """Filters the config's symbols to only include those present on both exchanges with sufficient volume."""
+        """Filters the config's symbols to only include those present on both exchanges."""
         logger.info("Filtering symbols to find those tradable on both exchanges...")
         hl_symbols = set(self.hl_client.coin_to_meta.keys())
         pacifica_symbols = set(self.pacifica_client._market_info.keys())
@@ -697,31 +721,9 @@ class RotationBot:
             logger.error("No common symbols found between Hyperliquid and Pacifica from the configured list. The bot cannot proceed.")
             sys.exit(1)
 
-        # Filter by Pacifica volume (minimum $50M in 24h)
-        MIN_PACIFICA_VOLUME = 50_000_000  # $50M
-        logger.info(f"Checking 24h volume on Pacifica (minimum: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...")
-
-        volume_filtered_symbols = []
-        removed_low_volume = []
-
-        for symbol in filtered_symbols:
-            volume = get_pacifica_24h_volume(symbol)
-            if volume >= MIN_PACIFICA_VOLUME:
-                logger.info(f"  ✓ {symbol}: ${volume/1_000_000:.1f}M volume")
-                volume_filtered_symbols.append(symbol)
-            else:
-                logger.warning(f"  ✗ {symbol}: ${volume/1_000_000:.1f}M volume (below ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M threshold)")
-                removed_low_volume.append(symbol)
-
-        if removed_low_volume:
-            logger.warning(f"{Colors.YELLOW}Removed symbols with insufficient Pacifica volume: {', '.join(removed_low_volume)}{Colors.RESET}")
-
-        if not volume_filtered_symbols:
-            logger.error(f"{Colors.RED}No symbols meet the minimum volume requirement of ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M on Pacifica. The bot cannot proceed.{Colors.RESET}")
-            sys.exit(1)
-
-        logger.info(f"{Colors.GREEN}Final list of monitored symbols: {', '.join(volume_filtered_symbols)}{Colors.RESET}")
-        self.config.symbols_to_monitor = volume_filtered_symbols
+        logger.info(f"{Colors.GREEN}Symbols available on both exchanges: {', '.join(filtered_symbols)}{Colors.RESET}")
+        logger.info(f"{Colors.CYAN}Volume and price spread filtering will be performed each cycle{Colors.RESET}")
+        self.config.symbols_to_monitor = filtered_symbols
 
     def _signal_handler(self, signum, frame):
         logger.info(f"\n{Colors.YELLOW}🛑 Shutdown signal received. Stopping gracefully...{Colors.RESET}")
@@ -885,19 +887,29 @@ class RotationBot:
             # Display funding rates table before filtering
             display_funding_rates_table(opportunities, self.config.min_net_apr_threshold)
 
-            # Filter by volume (re-check regularly, not just at startup)
+            # Filter by volume (checked every cycle to catch market changes)
             MIN_PACIFICA_VOLUME = 50_000_000  # $50M
-            logger.info(f"{Colors.CYAN}🔍 Filtering opportunities by volume (min: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...{Colors.RESET}")
+            logger.info(f"{Colors.CYAN}🔍 Checking volume for {len(opportunities)} symbols (min: ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M)...{Colors.RESET}")
 
             volume_filtered_opps = []
+            volume_passed = []
+            volume_failed = []
+
             for opp in opportunities:
                 symbol = opp["symbol"]
                 volume = get_pacifica_24h_volume(symbol)
                 if volume >= MIN_PACIFICA_VOLUME:
                     logger.debug(f"  ✓ {symbol}: ${volume/1_000_000:.1f}M volume")
                     volume_filtered_opps.append(opp)
+                    volume_passed.append(f"{symbol} (${volume/1_000_000:.1f}M)")
                 else:
-                    logger.warning(f"  ✗ {symbol}: ${volume/1_000_000:.1f}M volume (below ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M threshold)")
+                    logger.debug(f"  ✗ {symbol}: ${volume/1_000_000:.1f}M volume (below ${MIN_PACIFICA_VOLUME/1_000_000:.0f}M threshold)")
+                    volume_failed.append(f"{symbol} (${volume/1_000_000:.1f}M)")
+
+            if volume_passed:
+                logger.info(f"{Colors.GREEN}  ✓ Volume passed: {', '.join(volume_passed)}{Colors.RESET}")
+            if volume_failed:
+                logger.info(f"{Colors.YELLOW}  ✗ Volume failed: {', '.join(volume_failed)}{Colors.RESET}")
 
             if not volume_filtered_opps:
                 logger.warning(f"{Colors.YELLOW}No symbols meet volume requirement. Waiting for next cycle.{Colors.RESET}")
@@ -906,17 +918,27 @@ class RotationBot:
 
             # Filter by price spread (max 0.15%)
             MAX_PRICE_SPREAD = 0.15  # 0.15%
-            logger.info(f"{Colors.CYAN}🔍 Filtering opportunities by price spread (max: {MAX_PRICE_SPREAD}%)...{Colors.RESET}")
+            logger.info(f"{Colors.CYAN}🔍 Checking price spread for {len(volume_filtered_opps)} symbols (max: {MAX_PRICE_SPREAD}%)...{Colors.RESET}")
 
             spread_filtered_opps = []
+            spread_passed = []
+            spread_failed = []
+
             for opp in volume_filtered_opps:
                 symbol = opp["symbol"]
                 is_acceptable, spread_pct = await check_price_spread(self.hl_client, self.pacifica_client, symbol)
                 if is_acceptable and spread_pct <= MAX_PRICE_SPREAD:
                     logger.debug(f"  ✓ {symbol}: {spread_pct:.3f}% spread")
                     spread_filtered_opps.append(opp)
+                    spread_passed.append(f"{symbol} ({spread_pct:.3f}%)")
                 else:
-                    logger.warning(f"  ✗ {symbol}: {spread_pct:.3f}% spread (above {MAX_PRICE_SPREAD}% threshold)")
+                    logger.debug(f"  ✗ {symbol}: {spread_pct:.3f}% spread (above {MAX_PRICE_SPREAD}% threshold)")
+                    spread_failed.append(f"{symbol} ({spread_pct:.3f}%)")
+
+            if spread_passed:
+                logger.info(f"{Colors.GREEN}  ✓ Spread passed: {', '.join(spread_passed)}{Colors.RESET}")
+            if spread_failed:
+                logger.info(f"{Colors.YELLOW}  ✗ Spread failed: {', '.join(spread_failed)}{Colors.RESET}")
 
             if not spread_filtered_opps:
                 logger.warning(f"{Colors.YELLOW}No symbols meet price spread requirement. Waiting for next cycle.{Colors.RESET}")
@@ -1254,6 +1276,21 @@ class RotationBot:
 
             # Log as single message
             logger.info("\n".join(status_lines))
+
+            # Display current funding rates table to show market opportunities
+            try:
+                logger.info(f"{Colors.CYAN}📊 Current Market Opportunities:{Colors.RESET}")
+                current_opportunities = await fetch_funding_rates(self.hl_client, self.pacifica_client, self.config.symbols_to_monitor)
+                if current_opportunities:
+                    # Mark the current position in the display
+                    for opp in current_opportunities:
+                        if opp["symbol"] == symbol:
+                            opp["is_current_position"] = True
+                    display_funding_rates_table(current_opportunities, self.config.min_net_apr_threshold)
+                else:
+                    logger.info(f"{Colors.YELLOW}No funding rate data available{Colors.RESET}")
+            except Exception as e:
+                logger.debug(f"Could not fetch current funding rates: {e}")
 
             triggered, reason = check_stop_loss(pnl_data, pos["notional"], stop_loss_percent)
             if triggered:
