@@ -12,7 +12,6 @@ Can be also used to farm trading volume while limit risk (refreshes positions ev
   S1G3A2063Q7410BV
   5KH0XDRD8BDGTBCT
   S1YHDS2GWAJTWJ4M
-  7AMVQKK66MP55E8T
   7KB69JEC3BSA6GTR
   ```
 
@@ -271,6 +270,7 @@ The script scans symbols from `bot_config.json` and displays all open positions 
 ## 📜 License
 
 This bot is for educational and research purposes. Use at your own risk. Always test with small amounts first.
+
 
 
 
