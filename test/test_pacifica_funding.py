@@ -49,8 +49,9 @@ def main():
         print(f"Error initializing PacificaClient: {e}")
         return
 
-    # Get funding fees
-    print("Fetching funding fees...")
+    # Get predicted/next funding fees
+    print("Fetching predicted/next funding fees...")
+    print("NOTE: Using next_funding_rate (forward-looking), not historical funding_rate")
     try:
         funding_fees = client.get_funding_fees(symbols)
     except Exception as e:
@@ -61,12 +62,12 @@ def main():
     ranked_symbols = sorted(funding_fees.items(), key=lambda item: item[1], reverse=True)
 
     # Print ranked list
-    print("\n--- APR Ranking (based on 8-hour funding) ---")
+    print("\n--- APR Ranking (based on hourly predicted funding) ---")
     for symbol, rate in ranked_symbols:
-        # APR = rate * (periods in a year)
-        # Periods in a year = 365 days * (24 hours / 8 hours) = 365 * 3 = 1095
-        apr = rate * 1095 * 100  # Multiply by 100 to express as a percentage
-        print(f"{symbol}: {apr:.2f}% APR")
+        # APR = rate * 24 hours/day * 365 days/year * 100
+        # NOTE: Pacifica returns hourly rates (next_funding_rate field)
+        apr = rate * 24 * 365 * 100
+        print(f"{symbol}: {apr:.2f}% APR (hourly rate: {rate:.8f})")
 
 if __name__ == "__main__":
     main()

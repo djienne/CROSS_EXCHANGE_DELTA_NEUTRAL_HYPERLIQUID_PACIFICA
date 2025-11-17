@@ -11,40 +11,56 @@ from typing import List, Dict, Any
 
 def get_funding_data(connector: HyperliquidConnector, symbols_to_monitor: List[str]) -> List[Dict[str, Any]]:
     """
-    Fetches, processes, and sorts funding rate data for a list of symbols.
+    Fetches, processes, and sorts PREDICTED/NEXT funding rate data for a list of symbols.
+
+    Uses forward-looking funding rates that will be applied in the next funding period,
+    not historical rates that were already applied.
 
     Args:
         connector: An initialized HyperliquidConnector instance.
         symbols_to_monitor: A list of symbols to get funding data for.
 
     Returns:
-        A sorted list of dictionaries, each containing symbol, hourly_rate, and apr.
+        A sorted list of dictionaries, each containing symbol, hourly_rate, apr, and next_funding_time.
         Example structure:
         [
             {
                 "symbol": "BTC",
                 "hourly_rate": 0.0000125,
-                "apr": 10.95
+                "apr": 10.95,
+                "next_funding_time": 1733958000000
             },
             ...
         ]
     """
-    all_funding_rates = connector.get_funding_rates()
+    all_funding_rates = connector.get_predicted_funding_rates()
 
     if not all_funding_rates:
-        raise RuntimeError("Could not retrieve any funding rates.")
+        raise RuntimeError("Could not retrieve any predicted funding rates.")
 
     results = []
     for symbol in symbols_to_monitor:
         if symbol in all_funding_rates:
-            hourly_rate = all_funding_rates[symbol]
+            rate_data = all_funding_rates[symbol]
+            hourly_rate = rate_data["funding_rate"]
+            next_funding_time = rate_data["next_funding_time"]
             # APR = hourly_rate * 24 hours/day * 365 days/year * 100
             apr = hourly_rate * 24 * 365 * 100
-            results.append({"symbol": symbol, "hourly_rate": hourly_rate, "apr": apr})
+            results.append({
+                "symbol": symbol,
+                "hourly_rate": hourly_rate,
+                "apr": apr,
+                "next_funding_time": next_funding_time
+            })
         else:
             # Place symbols with no data at the bottom when sorting
-            results.append({"symbol": symbol, "hourly_rate": None, "apr": -float('inf')})
-    
+            results.append({
+                "symbol": symbol,
+                "hourly_rate": None,
+                "apr": -float('inf'),
+                "next_funding_time": None
+            })
+
     # Sort by APR, descending
     sorted_results = sorted(results, key=lambda x: x["apr"], reverse=True)
     return sorted_results
@@ -80,8 +96,8 @@ def main():
 
         connector = HyperliquidConnector(wallet_address, private_key)
 
-        # --- Get Funding Rates ---
-        logger.info("=== Fetching Funding Rates ===")
+        # --- Get Predicted Funding Rates ---
+        logger.info("=== Fetching Predicted/Next Funding Rates ===")
         funding_data = get_funding_data(connector, symbols_to_monitor)
         
         print(f"\nExplicitly returned data:\n{json.dumps(funding_data, indent=2)}")

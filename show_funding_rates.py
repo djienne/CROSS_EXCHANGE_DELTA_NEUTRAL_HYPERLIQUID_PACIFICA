@@ -2,7 +2,10 @@
 """
 show_funding_rates.py
 ---------------------
-Standalone script to display current funding rates comparison between Hyperliquid and Pacifica.
+Standalone script to display PREDICTED/NEXT funding rates comparison between Hyperliquid and Pacifica.
+
+Shows forward-looking funding rates that will be applied in the next funding period,
+not historical rates that were already applied. This is critical for arbitrage decision-making.
 
 Usage:
     python show_funding_rates.py
@@ -35,22 +38,32 @@ class Colors:
     GRAY = '\033[90m'
 
 async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbols: List[str]) -> List[Dict]:
-    """Fetch and compare funding rates for a list of symbols."""
+    """
+    Fetch and compare PREDICTED/NEXT funding rates for a list of symbols.
+
+    Uses forward-looking funding rates that will be applied in the next funding period,
+    not historical rates that were already applied.
+    """
     try:
-        hl_rates = hl_client.get_funding_rates()
+        hl_rates = hl_client.get_predicted_funding_rates()
     except Exception as e:
-        print(f"{Colors.RED}Error fetching Hyperliquid funding rates: {e}{Colors.RESET}")
+        print(f"{Colors.RED}Error fetching Hyperliquid predicted funding rates: {e}{Colors.RESET}")
         hl_rates = {}
 
     results = []
     for symbol in symbols:
         try:
+            # Pacifica's get_funding_rate now returns next_funding_rate (predicted)
             pacifica_rate = pacifica_client.get_funding_rate(symbol)
-            hl_rate = hl_rates.get(symbol)
 
-            if hl_rate is None:
-                print(f"{Colors.YELLOW}No funding rate for {symbol} on Hyperliquid.{Colors.RESET}")
+            # hl_rates now returns a dict with 'funding_rate' and 'next_funding_time'
+            hl_rate_data = hl_rates.get(symbol)
+
+            if hl_rate_data is None:
+                print(f"{Colors.YELLOW}No predicted funding rate for {symbol} on Hyperliquid.{Colors.RESET}")
                 continue
+
+            hl_rate = hl_rate_data["funding_rate"]
 
             # Rates are hourly percentages, convert to APR
             hl_apr = hl_rate * 24 * 365 * 100
@@ -69,7 +82,8 @@ async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: 
                 "net_apr": net_apr,
                 "long_exch": long_exch,
                 "short_exch": short_exch,
-                "available": True
+                "available": True,
+                "next_funding_time": hl_rate_data["next_funding_time"]
             })
         except Exception as e:
             print(f"{Colors.YELLOW}Could not process funding for {symbol}: {e}{Colors.RESET}")
