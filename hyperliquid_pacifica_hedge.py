@@ -301,22 +301,33 @@ async def check_price_spread(hl_client: HyperliquidConnector, pacifica_client: P
         return False, 999.0
 
 async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: PacificaClient, symbols: List[str]) -> List[Dict]:
-    """Fetch and compare funding rates for a list of symbols."""
+    """
+    Fetch and compare PREDICTED/NEXT funding rates for a list of symbols.
+
+    Uses forward-looking funding rates that will be applied in the next funding period,
+    not historical rates that were already applied. This is critical for arbitrage bots
+    to make correct decisions about future profitability.
+    """
     try:
-        hl_rates = hl_client.get_funding_rates()
+        hl_rates = hl_client.get_predicted_funding_rates()
     except Exception as e:
-        logger.error(f"Could not fetch Hyperliquid funding rates: {e}")
+        logger.error(f"Could not fetch Hyperliquid predicted funding rates: {e}")
         hl_rates = {}
 
     results = []
     for symbol in symbols:
         try:
+            # Pacifica's get_funding_rate now returns next_funding_rate (predicted)
             pacifica_rate = pacifica_client.get_funding_rate(symbol)
-            hl_rate = hl_rates.get(symbol)
 
-            if hl_rate is None:
-                logger.info(f"No funding rate for {symbol} on Hyperliquid.")
+            # hl_rates now returns a dict with 'funding_rate' and 'next_funding_time'
+            hl_rate_data = hl_rates.get(symbol)
+
+            if hl_rate_data is None:
+                logger.info(f"No predicted funding rate for {symbol} on Hyperliquid.")
                 continue
+
+            hl_rate = hl_rate_data["funding_rate"]
 
             # Rates are hourly percentages, convert to APR
             hl_apr = hl_rate * 24 * 365 * 100
@@ -324,7 +335,7 @@ async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: 
 
             # Positive net APR means shorting the higher APR exchange is profitable
             net_apr = abs(hl_apr - pacifica_apr)
-            
+
             long_exch = "Hyperliquid" if hl_apr < pacifica_apr else "Pacifica"
             short_exch = "Pacifica" if long_exch == "Hyperliquid" else "Hyperliquid"
 
@@ -335,7 +346,8 @@ async def fetch_funding_rates(hl_client: HyperliquidConnector, pacifica_client: 
                 "net_apr": net_apr,
                 "long_exch": long_exch,
                 "short_exch": short_exch,
-                "available": True
+                "available": True,
+                "next_funding_time": hl_rate_data["next_funding_time"]  # Store for reference
             })
         except Exception as e:
             logger.warning(f"Could not process funding for {symbol}: {e}")

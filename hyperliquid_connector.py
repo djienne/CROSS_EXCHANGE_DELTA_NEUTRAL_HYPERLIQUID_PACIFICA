@@ -214,9 +214,15 @@ class HyperliquidConnector:
 
     @rate_limited()
     def get_funding_rates(self):
+        """
+        Get current/historical funding rates (last applied).
+
+        DEPRECATED: For arbitrage bots, use get_predicted_funding_rates() instead
+        to get forward-looking rates that will be applied in the next funding period.
+        """
         self.logger.debug("Fetching meta and asset contexts for funding rates...")
         meta_and_ctxs = self.info.meta_and_asset_ctxs()
-        
+
         if not meta_and_ctxs or len(meta_and_ctxs) < 2:
             self.logger.error("Received invalid data from meta_and_asset_ctxs endpoint.")
             return {}
@@ -235,9 +241,55 @@ class HyperliquidConnector:
                 funding_rates[asset_name] = float(funding_rate)
             except (IndexError, KeyError) as e:
                 self.logger.warning(f"Could not process funding for asset at index {i}. Error: {e}")
-        
+
         self.logger.debug(f"Successfully processed {len(funding_rates)} funding rates.")
         return funding_rates
+
+    @rate_limited()
+    def get_predicted_funding_rates(self):
+        """
+        Get predicted/next funding rates (forward-looking).
+
+        Returns a dict with asset names as keys and dicts containing:
+        - 'funding_rate': The predicted funding rate for the next period
+        - 'next_funding_time': Timestamp (ms) when this rate will be applied
+
+        This should be used for arbitrage bots instead of get_funding_rates()
+        because it shows what you will earn/pay during the next funding period.
+        """
+        self.logger.debug("Fetching predicted funding rates...")
+        payload = {"type": "predictedFundings"}
+
+        try:
+            response = requests.post(f"{self.info.base_url}/info", json=payload, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            self.logger.error(f"Failed to fetch predicted funding rates: {e}")
+            return {}
+
+        # Parse response: [[asset, [[venue, {fundingRate, nextFundingTime}]]]]
+        predicted_rates = {}
+        for asset_data in data:
+            try:
+                asset_name = asset_data[0]
+                venues = asset_data[1]
+
+                # Find HlPerp venue (Hyperliquid perpetuals)
+                for venue_data in venues:
+                    venue_name = venue_data[0]
+                    if venue_name == "HlPerp":
+                        venue_info = venue_data[1]
+                        predicted_rates[asset_name] = {
+                            "funding_rate": float(venue_info["fundingRate"]),
+                            "next_funding_time": venue_info["nextFundingTime"]
+                        }
+                        break
+            except (IndexError, KeyError, TypeError) as e:
+                self.logger.warning(f"Could not process predicted funding for {asset_data}: {e}")
+
+        self.logger.debug(f"Successfully processed {len(predicted_rates)} predicted funding rates.")
+        return predicted_rates
 
     def get_user_state(self):
         """Fetches the user's state, including positions and margin summary."""

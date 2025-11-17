@@ -82,7 +82,8 @@ class PacificaClient:
                     "lot_size": float(lot_size_dec),
                     "min_notional": float(market.get("min_notional", 10.0)),
                     "max_leverage": int(market.get("max_leverage", 20)),
-                    "funding_rate": float(market.get("funding_rate", 0.0))
+                    "funding_rate": float(market.get("funding_rate", 0.0)),  # Historical (last applied)
+                    "next_funding_rate": float(market.get("next_funding_rate", 0.0))  # Forward-looking (predicted)
                 }
 
                 # Store Decimal versions for precise rounding
@@ -101,8 +102,8 @@ class PacificaClient:
                 raise RuntimeError("Failed to load market info from API") from e
 
             fallback_specs = {
-                "BTC": {"tick_size": 0.1, "lot_size": 0.001, "min_notional": 10.0, "max_leverage": 20, "funding_rate_1h": 0.0},
-                "ETH": {"tick_size": 0.01, "lot_size": 0.01, "min_notional": 10.0, "max_leverage": 20, "funding_rate_1h": 0.0}
+                "BTC": {"tick_size": 0.1, "lot_size": 0.001, "min_notional": 10.0, "max_leverage": 20, "funding_rate": 0.0, "next_funding_rate": 0.0},
+                "ETH": {"tick_size": 0.01, "lot_size": 0.01, "min_notional": 10.0, "max_leverage": 20, "funding_rate": 0.0, "next_funding_rate": 0.0}
             }
 
             for symbol, specs in fallback_specs.items():
@@ -114,7 +115,8 @@ class PacificaClient:
                     "lot_size": specs["lot_size"],
                     "min_notional": specs["min_notional"],
                     "max_leverage": specs["max_leverage"],
-                    "funding_rate_1h": specs["funding_rate_1h"]
+                    "funding_rate": specs["funding_rate"],  # Historical (last applied)
+                    "next_funding_rate": specs["next_funding_rate"]  # Forward-looking (predicted)
                 }
                 self._market_info_decimal[symbol] = {
                     "tick_size_dec": tick_size_dec,
@@ -141,8 +143,13 @@ class PacificaClient:
         return self._market_info.get(symbol, {}).get("max_leverage", 20)
     
     def get_funding_rate(self, symbol: str) -> float:
-        """Get funding rate for symbol."""
-        return self._market_info.get(symbol, {}).get("funding_rate", 0.0)
+        """
+        Get predicted/next funding rate for symbol.
+
+        Returns the forward-looking funding rate that will be applied in the next funding period,
+        not the historical rate that was already applied.
+        """
+        return self._market_info.get(symbol, {}).get("next_funding_rate", 0.0)
 
     def get_funding_fees(self, symbols: list[str]) -> Dict[str, float]:
         """Get funding fees for a list of symbols."""
