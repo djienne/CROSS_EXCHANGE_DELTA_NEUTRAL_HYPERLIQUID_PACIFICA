@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  hedge-bot:
+    build: .
+    container_name: hyperliquid-pacifica-bot
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
+    tty: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./:/app/
+    environment:
+      - PYTHONUNBUFFERED=1

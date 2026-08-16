@@ -1,0 +1,26 @@
+# Secrets — HL_PRIVATE_KEY / API_PRIVATE live here
+.env
+
+# Runtime state
+bot_state_hl_pacifica.json
+
+# Logs
+logs/
+connector_debug.log
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Editor/tooling backups - never commit
+*.bak
+*.bak-*
