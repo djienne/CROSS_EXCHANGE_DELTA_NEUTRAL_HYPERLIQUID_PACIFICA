@@ -17,8 +17,11 @@ from solders.keypair import Keypair
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
-# Add parent directory to path for SDK imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add THIS project's root to the path so the vendored pacifica_sdk/ resolves.
+# Must be .parent (the project), never .parent.parent -- that is the shared
+# DELTA_NEUTRAL folder holding every bot, and inserting it at position 0 would
+# let a stray pacifica_sdk/ there override this project's own copy.
+sys.path.insert(0, str(Path(__file__).parent))
 from pacifica_sdk.common.constants import REST_URL, WS_URL
 from pacifica_sdk.common.utils import sign_message
 

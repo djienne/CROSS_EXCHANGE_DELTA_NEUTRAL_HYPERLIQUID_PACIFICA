@@ -20,8 +20,10 @@ from typing import List, Dict
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Add parent directory to path for SDK imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add THIS project's root to the path so the vendored pacifica_sdk/ resolves.
+# Must be .parent (the project), never .parent.parent -- that is the shared
+# DELTA_NEUTRAL folder holding every bot.
+sys.path.insert(0, str(Path(__file__).parent))
 from pacifica_sdk.common.constants import REST_URL
 
 # Import exchange connectors
